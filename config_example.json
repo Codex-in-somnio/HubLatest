@@ -1,0 +1,9 @@
+{
+    "version_file_dir": "version_files",
+    "download_dir": "download_files",
+    "repo_list": [
+        "k9yyy/dead_by_unicode_gui"
+    ],
+    "regex_filter": ".*\\.zip$",
+    "max_retry": 3
+}

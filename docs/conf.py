@@ -1,0 +1,1 @@
+extensions = ["sphinxarg.ext", "sphinx_markdown_builder"]
