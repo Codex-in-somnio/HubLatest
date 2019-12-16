@@ -10,32 +10,41 @@
 ## 命令行用法
 
 ```
-usage: ./github_release_dl.py [-h] [-c PATH] [-e PATH] [-d PATH]
-                              [-r OWNER/REPO [OWNER/REPO ...]] [-f REGEX]
-                              [--max-retry N]
+usage: ./github_release_dl.py [-h] [-c PATH] [-v PATH] [-d PATH]
+                              [--use-subdir] [-r OWNER/REPO[:REGEX]
+                              [OWNER/REPO[:REGEX] ...]] [--max-retry N]
+                              [--verbose]
 ```
 
 ### Named Arguments
 
 *  **`-c, --config`**
+
    配置文件路径
 
-*  **`-e, --version-file-dir`**
-   版本文件存储路径
+*  **`-v, --version-file-dir`**
+
+   版本文件存储路径（默认：当前工作目录）
 
 *  **`-d, --download-dir`**
-   下载路径
+
+   下载路径（默认：当前工作目录）
+
+*  **`--use-subdir`**
+
+   使用子目录（用`所有者/仓库`的形式存放文件，默认不使用）
 
 *  **`-r, --repo-list`**
-   仓库列表
 
-*  **`-f, --filter`**
-   过滤文件名
+   仓库列表（仓库名后面可接`:regex`过滤文件名，不写则不过滤）
 
 *  **`--max-retry`**
-   重试次数
 
-默认的版本文件路径和下载路径均为当前工作目录。
+   重试次数（默认：5）
+
+*  **`--verbose`**
+
+   显示调试输出
 
 ## 配置文件用法
 
@@ -46,9 +55,9 @@ usage: ./github_release_dl.py [-h] [-c PATH] [-e PATH] [-d PATH]
     "version_file_dir": "version_files",
     "download_dir": "download_files",
     "repo_list": [
-        "k9yyy/dead_by_unicode_gui"
+        "k9yyy/dead_by_unicode_gui:.*\\.zip$"
     ],
-    "regex_filter": ".*\\.zip$",
+    "use_subdir": false,
     "max_retry": 3
 }
 ```
@@ -69,7 +78,3 @@ usage: ./github_release_dl.py [-h] [-c PATH] [-e PATH] [-d PATH]
 
 
 * 使用配置文件后，仍可以用命令行参数覆盖配置文件中所写的设置项。
-
-## TODO
-
-目前仅根据tag名称来判断本地文件是否是最新，暂时不能应对Release可能被编辑过之类的情况。考虑加入基于时间戳的判断。

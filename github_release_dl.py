@@ -3,172 +3,219 @@
 import json
 import urllib.request
 import os
+import sys
 import argparse
 import traceback
 import re
+import logging
+
+from dataclasses import dataclass
 
 
 API_URL_TEMPLATE = "https://api.github.com/repos/{0}/{1}/releases/latest"
-VERSION_FILE_NAME_TEMPLATE = "{0}/{1}.json"
+VER_FILE_NAME_TEMPLATE_SUBDIR = "{0}/{1}.json"
+VER_FILE_NAME_TEMPLATE_NO_SUBDIR = ".{0}.{1}.json"
 
 
-def check_api(repo):
-    api_url = API_URL_TEMPLATE.format(repo[0], repo[1])
-    response = urllib.request.urlopen(api_url)
-    if response.getcode() == 200:
-        parsed_response = json.loads(response.read())
-    else:
-        raise(f"API请求失败，返回：{response.getcode()}。")
-
-    latest_version = parsed_response["tag_name"]
-    if "assets" in parsed_response and parsed_response["assets"]:
-        assets = {}
-        for asset in parsed_response["assets"]:
-            url = asset["browser_download_url"]
-            filename = asset["name"]
-            assets[url] = filename
-        return latest_version, assets
-    else:
-        raise Exception("没有找到assets。")
+DEFAULT_OPTIONS = {
+    "version_file_dir": ".",
+    "download_dir": ".",
+    "use_subdir": False,
+    "repo_list": [],
+    "use_subdir": False,
+    "max_retry": 5
+}
 
 
-def get_version_file_pathname(repo, version_file_dir):
-    version_file_name = VERSION_FILE_NAME_TEMPLATE.format(repo[0], repo[1])
-    return os.path.join(version_file_dir, version_file_name)
+@dataclass
+class AssetFile:
+    filename: str
+    updated_at: str
+    length: int
 
 
-def get_local_version(repo, version_file_dir):
-    version_file_name = get_version_file_pathname(repo, version_file_dir)
-    local_version = None
-    current_files = set()
-    if os.path.isfile(version_file_name):
-        with open(version_file_name) as ver_file:
-            local_version_json = json.load(ver_file)
-        local_version = local_version_json["version"]
-        current_files = set(local_version_json["files"])
-    return local_version, current_files
+class DownloadRepoRelease:
 
+    def __call__(
+            self, owner, repo,
+            version_file_dir=DEFAULT_OPTIONS["version_file_dir"],
+            download_dir=DEFAULT_OPTIONS["download_dir"],
+            use_subdir=DEFAULT_OPTIONS["use_subdir"],
+            filter_regex=None,
+            max_retry=DEFAULT_OPTIONS["max_retry"],
+            logger=logging.getLogger("github_release_dl")):
 
-def download_assets(assets, download_file_dir, max_retry):
-    downloaded_files = set()
-    for url, filename in assets.items():
-        print(f"下载：{url}")
-        file_path = os.path.join(download_file_dir, filename)
-        try_function(urllib.request.urlretrieve, [url, file_path], max_retry)
-        downloaded_files.add(filename)
-    return downloaded_files
+        self.owner = owner
+        self.repo = repo
+        self.version_file_dir = version_file_dir
+        self.filter_regex = filter_regex
+        self.max_retry = max_retry
+        self.logger = logger
 
-
-def remove_old_files(files, download_file_dir):
-    for filename in files:
-        file_pathname = os.path.join(download_file_dir, filename)
-        if os.path.isfile(file_pathname):
-            print(f"删除旧文件：{file_pathname}")
-            os.remove(file_pathname)
+        if use_subdir:
+            ver_file_name_template = VER_FILE_NAME_TEMPLATE_SUBDIR
+            self.download_dir = os.path.join(download_dir, repo[0], repo[1])
         else:
-            print(f"未找到旧文件：{file_pathname}。")
+            ver_file_name_template = VER_FILE_NAME_TEMPLATE_NO_SUBDIR
+            self.download_dir = download_dir
+        os.makedirs(self.download_dir, 0o755, True)
 
+        version_file_name = ver_file_name_template.format(owner, repo)
+        self.version_file_path = os.path.join(version_file_dir,
+                                              version_file_name)
 
-def update_version_file(repo, version, files, version_file_dir):
-    version_file_pathname = get_version_file_pathname(repo, version_file_dir)
-    os.makedirs(os.path.dirname(version_file_pathname), 0o755, True)
-    with open(version_file_pathname, "w") as ver_file:
-        ver_file_data = {"version": version, "files": list(files)}
-        json.dump(ver_file_data, ver_file)
+        self.latest_version, self.release_files = self.get_release_files_list()
+        self.files_needed = self.release_files.copy()
+        logger.info(f"当前最新Release版本：{self.latest_version}")
+        logger.debug(f"Release文件：{self.release_files}")
 
+        local_version, self.local_files = self.get_local_files_list()
+        logger.info(f"当前本地版本：{local_version}")
+        logger.debug(f"本地文件：{self.local_files}")
 
-def try_function(function, params, max_retry):
-    for i in range(max_retry):
-        try:
-            return function(*params)
-        except Exception as e:
-            print(f"发生了错误：{e}。即将重试。")
-            if i == max_retry - 1:
-                print(f"达到最大重试次数（{max_retry}次）。")
-                raise e
+        self.files_to_remove = []
+        need_update_version_file = False
 
+        for url in list(self.files_needed.keys()):
+            if self.files_needed[url] in self.local_files:
+                filename = self.files_needed[url].filename
+                filepath = os.path.join(self.download_dir, filename)
+                length = self.files_needed[url].length
+                logger.debug(f"本地版本文件中已有最新的{filename}的记录。")
+                if not os.path.isfile(filepath):
+                    logger.debug(f"> 本地实际不存在{filename}，需要下载。")
+                elif os.path.getsize(filepath) != length:
+                    logger.debug(f"> 本地实际{filename}长度不匹配，需要重新下载。")
+                else:
+                    logger.debug(f"> 本地文件{filename}看起来没有问题，无需下载。")
+                    del self.files_needed[url]
 
-def filter_download_files_list(download_files_list, regex):
-    pattern = re.compile(regex)
-    matched = {}
-    for url, filename in download_files_list.items():
-        if pattern.match(filename):
-            matched[url] = filename
-    return matched
-
-
-def update_repo(repo, version_file_dir, download_dir, filter_regex, max_retry):
-    latest_version, assets = try_function(check_api, [repo], max_retry)
-    local_version, local_files = get_local_version(repo, version_file_dir)
-
-    download_file_dir = os.path.join(download_dir, repo[0], repo[1])
-    os.makedirs(download_file_dir, 0o755, True)
-
-    filtered_download_list = filter_download_files_list(assets, filter_regex)
-
-    files_to_remove = set()
-    need_update_version_file = False
-    if local_version != latest_version:
-        print(f"发现更新版本：{latest_version}，即将下载。")
-        downloaded_files = download_assets(
-            filtered_download_list, download_file_dir, max_retry)
-        for filename in local_files:
-            if filename not in downloaded_files:
-                files_to_remove.add(filename)
-        need_update_version_file = True
-    else:
-        print(f"当前本地的{local_version}已经是最新版本。")
-
-        # 下面处理万一filter改变导致需要的文件变化的情况
-        files_needed = {}
-        for url, filename in filtered_download_list.items():
-            if filename not in local_files:
-                files_needed[url] = filename
-        if files_needed:
-            download_assets(files_needed, download_file_dir, max_retry)
+        if self.files_needed:
+            self.download_files()
             need_update_version_file = True
-        for filename in local_files:
-            if filename not in filtered_download_list.values():
-                files_to_remove.add(filename)
+        else:
+            logger.info("没有新的Release文件需要下载。")
+
+        release_filenames = []
+        for file in self.release_files.values():
+            release_filenames.append(file.filename)
+
+        for file in self.local_files:
+            if file.filename not in release_filenames:
+                self.files_to_remove.append(file)
                 need_update_version_file = True
 
-    if files_to_remove:
-        remove_old_files(files_to_remove, download_file_dir)
-    if need_update_version_file:
-        update_version_file(repo,
-                            latest_version,
-                            filtered_download_list.values(),
-                            version_file_dir)
+        if self.files_to_remove:
+            self.remove_old_files()
+
+        if need_update_version_file:
+            self.update_version_file()
+
+    def get_release_files_list(self):
+        api_url = API_URL_TEMPLATE.format(self.owner, self.repo)
+        response = self.try_function(urllib.request.urlopen, [api_url])
+        if response.getcode() == 200:
+            parsed_response = json.loads(response.read())
+        else:
+            raise(f"API请求失败，返回：{response.getcode()}。")
+
+        if self.filter_regex:
+            pattern = re.compile(self.filter_regex)
+        if "assets" in parsed_response and parsed_response["assets"]:
+            assets = {}
+            for asset in parsed_response["assets"]:
+                url = asset["browser_download_url"]
+                filename = asset["name"]
+                if self.filter_regex and not pattern.match(filename):
+                    continue
+                asset_obj = AssetFile(
+                    filename=filename,
+                    updated_at=asset["updated_at"],
+                    length=asset["size"]
+                )
+                assets[url] = asset_obj
+            return parsed_response["tag_name"], assets
+        else:
+            raise Exception("没有找到assets。")
+
+    def get_local_files_list(self):
+        local_version = None
+        current_files = []
+        if os.path.isfile(self.version_file_path):
+            with open(self.version_file_path) as ver_file:
+                local_version_json = json.load(ver_file)
+            local_version = local_version_json["version"]
+            for file in local_version_json["files"]:
+                current_files.append(AssetFile(**file))
+        return local_version, current_files
+
+    def download_files(self):
+        for url, file in self.files_needed.items():
+            self.logger.info(f"下载：{url}")
+            file_path = os.path.join(self.download_dir, file.filename)
+            self.try_function(urllib.request.urlretrieve,
+                              [url, file_path])
+
+    def remove_old_files(self):
+        for file in self.files_to_remove:
+            file_pathname = os.path.join(self.download_dir, file.filename)
+            self.logger.info(f"删除旧文件：{file_pathname}")
+            if os.path.isfile(file_pathname):
+                os.remove(file_pathname)
+            else:
+                self.logger.warning(f"未找到旧文件：{file_pathname}")
+
+    def update_version_file(self):
+        os.makedirs(os.path.dirname(self.version_file_path), 0o755, True)
+        files = self.release_files.values()
+        files_output = []
+        for f in files:
+            files_output.append(vars(f))
+        with open(self.version_file_path, "w") as ver_file:
+            ver_file_data = {
+                "version": self.latest_version,
+                "files": files_output}
+            json.dump(ver_file_data, ver_file)
+
+    def try_function(self, function, params):
+        for i in range(self.max_retry):
+            try:
+                return function(*params)
+            except Exception as e:
+                self.logger.warning(f"发生了错误：{e}。即将重试。")
+                if i == self.max_retry - 1:
+                    self.logger.error(f"达到最大重试次数（{max_retry}次）。")
+                    raise e
+
+
+download_repo_release = DownloadRepoRelease()
+
 
 def get_arg_parser():
     parser = argparse.ArgumentParser(description="批量获取GitHub仓库的Release")
     parser.add_argument("-c", "--config", metavar="PATH",
                         help="配置文件路径")
-    parser.add_argument("-e", "--version-file-dir", metavar="PATH",
-                        help="版本文件存储路径")
+    parser.add_argument("-v", "--version-file-dir", metavar="PATH",
+                        help="版本文件存储路径（默认：当前工作目录）")
     parser.add_argument("-d", "--download-dir", metavar="PATH",
-                        help="下载路径")
-    parser.add_argument("-r", "--repo-list", metavar="OWNER/REPO", nargs="+",
-                        help="仓库列表")
-    parser.add_argument("-f", "--filter", metavar="REGEX",
-                        help="过滤文件名")
+                        help="下载路径（默认：当前工作目录）")
+    parser.add_argument("--use-subdir", action="store_true",
+                        help=f"使用子目录（用`所有者/仓库`的形式存放文件，默认不使用）")
+    parser.add_argument("-r", "--repo-list",
+                        metavar="OWNER/REPO[:REGEX]", nargs="+",
+                        help="仓库列表（仓库名后面可接`:regex`过滤文件名，不写则不过滤）")
     parser.add_argument("--max-retry", metavar="N", type=int,
-                        help="重试次数")
+                        help=f"重试次数（默认：{DEFAULT_OPTIONS['max_retry']}）")
+    parser.add_argument("--verbose", action="store_true",
+                        help=f"显示调试输出")
     return parser
 
+
 def main():
-    default_options = {
-        "version_file_dir": "",
-        "download_dir": "",
-        "repo_list": [],
-        "filter": ".*",
-        "max_retry": 5
-    }
-    
     parser = get_arg_parser()
     parsed_args = vars(parser.parse_args())
 
-    options = default_options
+    options = DEFAULT_OPTIONS
     if parsed_args["config"] is not None:
         with open(parsed_args["config"]) as conf_file:
             options.update(json.load(conf_file))
@@ -177,24 +224,42 @@ def main():
         if parsed_args[option] is not None:
             options[option] = parsed_args[option]
     if not options["repo_list"]:
-        print("没有指定任何仓库。\n")
+        print("没有指定任何仓库。\n", file=sys.stderr)
         parser.print_help()
         exit(-1)
 
-    for repo in options["repo_list"]:
-        print(f"处理：{repo}")
-        repo = repo.split("/")
-        try:
-            update_repo(repo,
-                        options["version_file_dir"],
-                        options["download_dir"],
-                        options["filter"],
-                        options["max_retry"])
-        except Exception as e:
-            print(f"发生了错误：{e}")
-            print(traceback.format_exc())
+    logging.basicConfig(
+        format="%(levelname)-6s %(message)s",
+        level=logging.DEBUG if options["verbose"] else logging.INFO
+    )
 
-    print("完成。")
+    for repo_option in options["repo_list"]:
+        logging.info(f"处理：{repo_option}")
+        try:
+            regex = None
+            # 过滤用的regex用:跟在repo后面表示，先看有没有指定regex
+            if ":" in repo_option:
+                repo_option = repo_option.split(":", 1)
+                regex = repo_option[1]
+                repo_option = repo_option[0]
+
+            owner, repo = repo_option.split("/")
+
+            download_repo_release(
+                owner=owner,
+                repo=repo,
+                version_file_dir=options["version_file_dir"],
+                download_dir=options["download_dir"],
+                use_subdir=options["use_subdir"],
+                filter_regex=regex,
+                max_retry=options["max_retry"],
+                logger=logging
+            )
+        except Exception as e:
+            logging.error(f"发生了错误：{e}")
+            logging.debug(traceback.format_exc())
+
+    logging.info("完成。")
 
 
 if __name__ == "__main__":
