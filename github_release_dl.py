@@ -9,7 +9,7 @@ import traceback
 import re
 import logging
 
-from dataclasses import dataclass
+from collections import namedtuple
 
 
 API_URL_TEMPLATE = "https://api.github.com/repos/{0}/{1}/releases/latest"
@@ -27,11 +27,7 @@ DEFAULT_OPTIONS = {
 }
 
 
-@dataclass
-class AssetFile:
-    filename: str
-    updated_at: str
-    length: int
+AssetFile = namedtuple("AssetFile", "filename updated_at length")
 
 
 class DownloadRepoRelease:
@@ -126,7 +122,8 @@ class DownloadRepoRelease:
             for asset in parsed_response["assets"]:
                 url = asset["browser_download_url"]
                 filename = asset["name"]
-                if self.filter_regex and not pattern.match(filename):
+                if self.filter_regex and not pattern.findall(filename):
+                    self.logger.debug(f"> 已排除：{filename}")
                     continue
                 asset_obj = AssetFile(
                     filename=filename,
@@ -134,6 +131,7 @@ class DownloadRepoRelease:
                     length=asset["size"]
                 )
                 assets[url] = asset_obj
+                self.logger.debug(f"> 已加入：{filename}")
             return parsed_response["tag_name"], assets
         else:
             raise Exception("没有找到assets。")
@@ -170,7 +168,7 @@ class DownloadRepoRelease:
         files = self.release_files.values()
         files_output = []
         for f in files:
-            files_output.append(vars(f))
+            files_output.append(f._asdict())
         with open(self.version_file_path, "w") as ver_file:
             ver_file_data = {
                 "version": self.latest_version,

@@ -55,7 +55,7 @@ usage: ./github_release_dl.py [-h] [-c PATH] [-v PATH] [-d PATH]
     "version_file_dir": "version_files",
     "download_dir": "download_files",
     "repo_list": [
-        "k9yyy/dead_by_unicode_gui:.*\\.zip$"
+        "k9yyy/dead_by_unicode_gui:zip$"
     ],
     "use_subdir": false,
     "max_retry": 3
