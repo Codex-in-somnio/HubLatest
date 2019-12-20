@@ -234,8 +234,8 @@ def get_arg_parser(no_additional_help=False):
     prerel_desp = \
         "\n&#9;- 默认不管是否是Prerelease，直接下载列表中最新的"
     cmd_desp = \
-        "\n&#9;- 可插入的变量：`{{filename}}`、`{{filedir}}`、`{{filepath}}`、" \
-        "`{{owner}}`、`{{repo}}、{{version}}`,分别代表文件名、文件所在目录、" \
+        "\n&#9;- 可插入的变量：`{filename}`、`{filedir}`、`{filepath}`、" \
+        "`{owner}`、`{repo}`、`{version}`，分别代表文件名、文件所在目录、" \
         "文件路径、仓库所有者、仓库名、当前版本；路径均用相对于工作目录的相对路径表示"
 
     if no_additional_help:
