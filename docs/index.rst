@@ -1,4 +1,4 @@
-github_release_dl
+HubLatest
 =================
 
 用来获取GitHub仓库的Release的脚本。
@@ -6,15 +6,15 @@ github_release_dl
 环境要求
 ********
 
-* 需要Python 3.5及以上。
+* 需要Python 3.6及以上。
 
 命令行用法
 **********
 
 .. argparse::
-  :filename: ../github_release_dl.py
+  :filename: ../hublatest.py
   :func: get_arg_parser
-  :prog: ./github_release_dl.py
+  :prog: ./hublatest.py
   :nodescription:
   :nodefault:
   :markdownhelp:
@@ -31,7 +31,7 @@ github_release_dl
 
 ::
 
-  ./github_release_dl.py -c config.json
+  ./hublatest.py -c config.json
 
 一些说明：
 

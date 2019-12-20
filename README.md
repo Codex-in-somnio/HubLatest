@@ -1,21 +1,20 @@
-# github_release_dl
+# HubLatest
 
 用来获取GitHub仓库的Release的脚本。
 
 ## 环境要求
 
 
-* 需要Python 3.5及以上。
+* 需要Python 3.6及以上。
 
 ## 命令行用法
 
 ```
-usage: ./github_release_dl.py [-h] [-f REGEX] [--prerelease] [--no-prerelease]
-                              [--post-download COMMAND]
-                              [--post-remove COMMAND] [-c PATH] [-v PATH]
-                              [-d PATH] [--use-subdir] [--max-retry N]
-                              [--verbose]
-                              [OWNER/REPO]
+usage: ./hublatest.py [-h] [-f REGEX] [--prerelease] [--no-prerelease]
+                      [--post-download COMMAND] [--post-remove COMMAND]
+                      [-c PATH] [-v PATH] [-d PATH] [--use-subdir]
+                      [--max-retry N] [--verbose]
+                      [OWNER/REPO]
 ```
 
 ### Positional Arguments
@@ -90,7 +89,8 @@ usage: ./github_release_dl.py [-h] [-f REGEX] [--prerelease] [--no-prerelease]
     "repositories": {
         "k9yyy/dead_by_unicode_gui": {
             "regex_filter": "zip$",
-            "prerelease": false
+            "prerelease": false,
+            "post_download": "unzip {filepath} -d {filedir}"
         },
         "k9yyy/ThreadCutter": {
             "regex_filter": "zip$",
@@ -105,7 +105,7 @@ usage: ./github_release_dl.py [-h] [-f REGEX] [--prerelease] [--no-prerelease]
 用法例如：
 
 ```
-./github_release_dl.py -c config.json
+./hublatest.py -c config.json
 ```
 
 一些说明：
