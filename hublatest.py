@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import configparser
 import urllib.request
 import os
 import sys
@@ -22,9 +23,21 @@ DEFAULT_OPTIONS = {
     "version_file_dir": None,
     "download_dir": ".",
     "use_subdir": False,
-    "repositories": {},
     "max_retry": 5,
     "verbose": False
+}
+
+OPTION_TYPES = {
+    "version_file_dir": str,
+    "download_dir": str,
+    "use_subdir": bool,
+    "regex_filter": str,
+    "prerelease": bool,
+    "post_download": str,
+    "post_remove": str,
+    "force": bool,
+    "max_retry": int,
+    "verbose": bool
 }
 
 
@@ -42,6 +55,7 @@ class DownloadRepoRelease:
             prerelease=None,
             post_download=None,
             post_remove=None,
+            force=False,
             max_retry=DEFAULT_OPTIONS["max_retry"],
             logger=logging.getLogger("github_release_dl")):
 
@@ -77,9 +91,15 @@ class DownloadRepoRelease:
         self.version_file_path = os.path.join(version_file_dir,
                                               version_file_name)
 
-        local_version, local_files = self.get_local_files_list()
-        logger.info(f"当前本地版本：{local_version}")
-        logger.debug(f"本地文件：{local_files}")
+        if force == True:
+            logger.debug(f"已指定force，不读入本地版本文件。")
+            local_files = []
+            local_version = ""
+        else:
+            local_version, local_files = self.get_local_files_list()
+            logger.info(f"当前本地版本：{local_version}")
+            logger.debug(f"本地文件：{local_files}")
+        
 
         self.files_to_remove = []
         need_update_version_file = False
@@ -229,8 +249,6 @@ download_repo_release = DownloadRepoRelease()
 
 
 def get_arg_parser(no_additional_help=False):
-    cli_repo_option = \
-        "\n&#9;- 通过命令行指定此参数时，此参数仅对命令行参数指定的仓库生效"
     prerel_desp = \
         "\n&#9;- 默认不管是否是Prerelease，直接下载列表中最新的"
     cmd_desp = \
@@ -239,22 +257,22 @@ def get_arg_parser(no_additional_help=False):
         "文件路径、仓库所有者、仓库名、当前版本；路径均用相对于工作目录的相对路径表示"
 
     if no_additional_help:
-        cli_repo_option = prerel_desp = cmd_desp = ""
+        prerel_desp = cmd_desp = ""
 
     parser = argparse.ArgumentParser(description="获取GitHub仓库的Release的工具")
     parser.add_argument("repo", metavar="OWNER/REPO", nargs="?",
                         help="`所有者/仓库`的形式的仓库名（如果指定此参数，配置文件指定"
                         "的仓库列表及选项会被覆盖）")
-    parser.add_argument("-f", "--regex-filter", metavar="REGEX",
-                        help=f"用regex过滤文件名{cli_repo_option}")
+    parser.add_argument("-r", "--regex-filter", metavar="REGEX",
+                        help=f"用regex过滤文件名")
     parser.add_argument("--prerelease", action="store_true",
-                        help=f"下载最新的Prerelease{cli_repo_option}{prerel_desp}")
+                        help=f"下载最新的Prerelease{prerel_desp}")
     parser.add_argument("--no-prerelease", action="store_true",
-                        help=f"下载最新的非Prerelease{cli_repo_option}{prerel_desp}")
+                        help=f"下载最新的非Prerelease{prerel_desp}")
     parser.add_argument("--post-download", metavar="COMMAND",
-                        help=f"下载完成后执行的命令{cli_repo_option}{cmd_desp}")
+                        help=f"下载完成后执行的命令{cmd_desp}")
     parser.add_argument("--post-remove", metavar="COMMAND",
-                        help=f"删除文件后执行的命令{cli_repo_option}{cmd_desp}")
+                        help=f"删除文件后执行的命令{cmd_desp}")
     parser.add_argument("-c", "--config", metavar="PATH",
                         help="配置文件路径")
     parser.add_argument("-v", "--version-file-dir", metavar="PATH",
@@ -263,6 +281,8 @@ def get_arg_parser(no_additional_help=False):
                         help="下载路径（默认：当前工作目录）")
     parser.add_argument("--use-subdir", action="store_true",
                         help=f"使用子目录（用`所有者/仓库`的形式存放文件，默认不使用）")
+    parser.add_argument("-f", "--force", action="store_true",
+                        help=f"忽略当前版本文件，强制执行")
     parser.add_argument("--max-retry", metavar="N", type=int,
                         help=f"重试次数（默认：{DEFAULT_OPTIONS['max_retry']}）")
     parser.add_argument("--verbose", action="store_true",
@@ -273,62 +293,77 @@ def get_arg_parser(no_additional_help=False):
 def main():
     parser = get_arg_parser(no_additional_help=True)
     parsed_args = vars(parser.parse_args())
+    conf = configparser.ConfigParser()
 
     options = DEFAULT_OPTIONS
+
+    parsed_conf = {}
     if parsed_args["config"] is not None:
-        with open(parsed_args["config"]) as conf_file:
-            options.update(json.load(conf_file))
+        conf.read(parsed_args["config"])
+        for conf_section in conf:
+            parsed_conf[conf_section] = {}
+            for key, val in conf[conf_section].items():
+                if key in OPTION_TYPES:
+                    if OPTION_TYPES[key] == str:
+                        parsed_conf[conf_section][key] = val
+                    elif OPTION_TYPES[key] == int:
+                        parsed_conf[conf_section][key] = int(val)
+                    elif OPTION_TYPES[key] == bool:
+                        parsed_conf[conf_section][key] = \
+                            conf.getboolean(conf_section, key)
+                else:
+                    raise Exception(f"未知配置选项：{key}")
+        options.update(parsed_conf["DEFAULT"])
+        del parsed_conf["DEFAULT"]
     del parsed_args["config"]
 
-    for option, value in options.items():
-        if option == "repositories":
-            continue
-        if parsed_args[option] is not None:
-            options[option] = parsed_args[option]
+    prerelease = None
+    if parsed_args["prerelease"]:
+        prerelease = True
+        del parsed_args["prerelease"]
+    if parsed_args["no_prerelease"]:
+        if prerelease == True:
+            raise Exception(f"不能同时指定--prerelease和--no-prerelease。")
+        prerelease = False
+    del parsed_args["no_prerelease"]
+    del parsed_args["prerelease"]
+
+    if parsed_args["repo"]:
+        repositories = {
+            parsed_args["repo"]: {}
+        }
+        del parsed_args["repo"]
+    else:
+        repositories = parsed_conf
+
+    for key, val in parsed_args.copy().items():
+        if val is None:
+            del parsed_args[key]
+
+    options.update(parsed_args)
 
     logging.basicConfig(
         format="%(levelname)-6s %(message)s",
         level=logging.DEBUG if options["verbose"] else logging.INFO
     )
-
-    if parsed_args["repo"]:
-        prerelease = None
-        if parsed_args["prerelease"]:
-            prerelease = True
-        if parsed_args["no_prerelease"]:
-            if prerelease == True:
-                logging.error(f"不能同时指定--prerelease和--no-prerelease。")
-                exit(-1)
-            prerelease = False
-        repositories = {
-            parsed_args["repo"]: {
-                "regex_filter": parsed_args["regex_filter"],
-                "prerelease": prerelease,
-                "post_download": parsed_args["post_download"],
-                "post_remove": parsed_args["post_remove"],
-            }
-        }
-    else:
-        repositories = options["repositories"]
+    del options["verbose"]
 
     if not repositories:
         logging.error("没有指定任何仓库。\n")
         parser.print_help()
         exit(-1)
 
-    del options["repositories"]
-    del options["verbose"]
-
     for repo_identifier, repo_options in repositories.items():
         logging.info(f"处理：{repo_identifier}")
+        repo_options_merged = options.copy()
+        repo_options_merged.update(repo_options)
         try:
             owner, repo = repo_identifier.split("/")
             download_repo_release(
                 owner=owner,
                 repo=repo,
                 logger=logging,
-                **options,
-                **repo_options
+                **repo_options_merged
             )
         except Exception as e:
             logging.error(f"发生了错误：{e}")
