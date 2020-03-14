@@ -5,14 +5,14 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="HubLatest",
-    version="0.1",
+    version="0.1.1",
     author="Codex-in-Somnio",
     author_email="yyy3752@gmail.com",
     description="Script to automatically download latest release from "
                 "GitHub repos",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/pypa/sampleproject",
+    url="https://github.com/Codex-in-somnio/HubLatest",
     license='MIT',
     classifiers=[
         "Development Status :: 4 - Beta",

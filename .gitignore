@@ -3,3 +3,5 @@ docs/readme
 download_files
 version_files
 __pycache__
+*.egg-info
+dist

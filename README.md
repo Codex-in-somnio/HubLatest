@@ -7,7 +7,7 @@ Script for retrieving latest releases from GitHub repositories.
 
 * Python 3.6 and above
 
-Commandline options:
+## Commandline options
 
 ```
 usage: hublatest [-h] [-r REGEX] [--prerelease] [--no-prerelease]

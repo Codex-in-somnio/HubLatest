@@ -8,7 +8,8 @@ Requirements
 
 * Python 3.6 and above
 
-Commandline options:
+Commandline options
+*******************
 
 .. argparse::
   :filename: ./get_arg_parser.py
