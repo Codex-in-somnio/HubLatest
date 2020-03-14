@@ -2,3 +2,4 @@
 docs/readme
 download_files
 version_files
+__pycache__

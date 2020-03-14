@@ -9,10 +9,18 @@ import argparse
 import traceback
 import re
 import logging
+import gettext
 
 from subprocess import run, PIPE
 from shlex import quote
 from collections import namedtuple
+
+
+translation = gettext.translation(
+    "messages",
+    os.path.join(os.path.dirname(__file__), "locale"),
+    fallback=True)
+_ = translation.gettext
 
 
 API_URL_TEMPLATE = "https://api.github.com/repos/{0}/{1}/releases"
@@ -79,11 +87,13 @@ class DownloadRepoRelease:
 
         self.latest_version, self.release_files = self.get_release_files_list()
         self.files_needed = self.release_files.copy()
-        logger.info(f"当前最新Release版本：{self.latest_version}")
-        logger.debug(f"Release文件：{self.release_files}")
+        logger.info(
+            _("Current newest release version: {}").format(self.latest_version))
+        logger.debug(_("Release assets: {}").format(self.release_files))
 
         if not version_file_dir:
-            logger.debug("没有指定版本文件路径，将只下载文件。")
+            logger.debug(
+                _("No --version-file-dir specified, will download only."))
             self.download_files()
             return
 
@@ -92,14 +102,13 @@ class DownloadRepoRelease:
                                               version_file_name)
 
         if force == True:
-            logger.debug(f"已指定force，不读入本地版本文件。")
+            logger.debug(_("--force specified, ignoring version file."))
             local_files = []
             local_version = ""
         else:
             local_version, local_files = self.get_local_files_list()
-            logger.info(f"当前本地版本：{local_version}")
-            logger.debug(f"本地文件：{local_files}")
-        
+            logger.info(_("Current local version: {}").format(local_version))
+            logger.debug(_("Local assets: {}").format(local_files))
 
         self.files_to_remove = []
         need_update_version_file = False
@@ -109,20 +118,28 @@ class DownloadRepoRelease:
                 filename = self.files_needed[url].filename
                 filepath = os.path.join(self.download_dir, filename)
                 length = self.files_needed[url].length
-                logger.debug(f"本地版本文件中已有最新的{filename}的记录。")
+                logger.debug(
+                    _("Found latest record of {} from local version "
+                      "file.").format(filename))
                 if not os.path.isfile(filepath):
-                    logger.debug(f"> 本地实际不存在{filename}，需要下载。")
+                    logger.debug(
+                        "> " + _("{} not found, will be downloaded.").format(
+                            filename))
                 elif os.path.getsize(filepath) != length:
-                    logger.debug(f"> 本地实际{filename}长度不匹配，需要重新下载。")
+                    logger.debug(
+                        "> " + _("The local copy of {} has wrong length, will "
+                                 "be re-downloaded.").format(filename))
                 else:
-                    logger.debug(f"> 本地文件{filename}看起来没有问题，无需下载。")
+                    logger.debug(
+                        "> " + _("The local copy of {} looks fine, no need to"
+                                 " download.").format(filename))
                     del self.files_needed[url]
 
         if self.files_needed:
             self.download_files()
             need_update_version_file = True
         else:
-            logger.info("没有新的Release文件需要下载。")
+            logger.info(_("No new releases need to be downloaded."))
 
         release_filenames = []
         for file in self.release_files.values():
@@ -145,7 +162,8 @@ class DownloadRepoRelease:
         if response.getcode() == 200:
             releases = json.loads(response.read())
         else:
-            raise(f"API请求失败，返回：{response.getcode()}。")
+            raise(_("API request failed, returned: {}.").format(
+                response.getcode()))
 
         release = None
         for item in releases:
@@ -153,9 +171,9 @@ class DownloadRepoRelease:
                 release = item
                 break
         if not release:
-            raise Exception("没有找到符合要求的Release。")
+            raise Exception(_("No suitable releases found."))
         if "assets" not in release or not release["assets"]:
-            raise Exception("Release中没有找到assets。")
+            raise Exception(_("No assets in release."))
 
         if self.regex_filter:
             pattern = re.compile(self.regex_filter)
@@ -164,7 +182,7 @@ class DownloadRepoRelease:
             url = asset["browser_download_url"]
             filename = asset["name"]
             if self.regex_filter and not pattern.findall(filename):
-                self.logger.debug(f"> 已排除：{filename}")
+                self.logger.debug("> " + _("Excluded {}").format(filename))
                 continue
             asset_obj = AssetFile(
                 filename=filename,
@@ -172,9 +190,9 @@ class DownloadRepoRelease:
                 length=asset["size"]
             )
             assets[url] = asset_obj
-            self.logger.debug(f"> 已加入：{filename}")
+            self.logger.debug("> " + _("Added {}").format(filename))
         if not assets:
-            raise Exception("没有任何符合过滤条件的文件。")
+            raise Exception(_("No files matched the regex filter."))
         return release["tag_name"], assets
 
     def get_local_files_list(self):
@@ -190,7 +208,7 @@ class DownloadRepoRelease:
 
     def download_files(self):
         for url, file in self.files_needed.items():
-            self.logger.info(f"下载：{url}")
+            self.logger.info(_("Downloading: {}").format(url))
             file_path = os.path.join(self.download_dir, file.filename)
             self.try_function(urllib.request.urlretrieve, [url, file_path])
             if self.post_download:
@@ -199,13 +217,14 @@ class DownloadRepoRelease:
     def remove_old_files(self):
         for file in self.files_to_remove:
             file_pathname = os.path.join(self.download_dir, file.filename)
-            self.logger.info(f"删除旧文件：{file_pathname}")
+            self.logger.info(_("Removing old file: {}").format(file_pathname))
             if os.path.isfile(file_pathname):
                 os.remove(file_pathname)
                 if self.post_remove:
                     self.exec_commands(self.post_remove, file)
             else:
-                self.logger.warning(f"未找到旧文件：{file_pathname}")
+                self.logger.warning(
+                    _("Old file not found: {}").format(file_pathname))
 
     def update_version_file(self):
         os.makedirs(os.path.dirname(self.version_file_path), 0o755, True)
@@ -224,9 +243,12 @@ class DownloadRepoRelease:
             try:
                 return function(*params)
             except Exception as e:
-                self.logger.warning(f"发生了错误：{e}。即将重试。")
+                self.logger.warning(
+                    _("Error occured: {}. Retrying.").format(e))
                 if i == self.max_retry - 1:
-                    self.logger.error(f"达到最大重试次数（{max_retry}次）。")
+                    self.logger.error(
+                        _("Max retry attemps reached. ({} times).").format(
+                            max_retry))
                     raise e
 
     def exec_commands(self, cmd_template, file):
@@ -237,10 +259,11 @@ class DownloadRepoRelease:
             owner=quote(self.owner),
             repo=quote(self.repo),
             version=quote(self.latest_version))
-        self.logger.debug(f"执行命令：{cmd}")
+        self.logger.debug(_("Executing command: {}").format(cmd))
         result = run(cmd, shell=True, stdout=PIPE, stderr=PIPE)
         if result.returncode != 0:
-            self.logger.error(f"命令`{cmd}`返回{result.returncode}")
+            self.logger.error(
+                _("Command `{0}` returned {1}.").format(cmd, result.returncode))
             self.logger.error(result.stderr.decode(sys.stdout.encoding))
             self.logger.debug(result.stdout.decode(sys.stdout.encoding))
 
@@ -250,43 +273,56 @@ download_repo_release = DownloadRepoRelease()
 
 def get_arg_parser(no_additional_help=False):
     prerel_desp = \
-        "\n&#9;- 默认不管是否是Prerelease，直接下载列表中最新的"
+        "\n&#9;- " + \
+        _("By default, the newest release will be downloaded, regardless of "
+          "prerelease or not")
     cmd_desp = \
-        "\n&#9;- 可插入的变量：`{filename}`、`{filedir}`、`{filepath}`、" \
-        "`{owner}`、`{repo}`、`{version}`，分别代表文件名、文件所在目录、" \
-        "文件路径、仓库所有者、仓库名、当前版本；路径均用相对于工作目录的相对路径表示"
+        "\n&#9;- " + \
+        _("Variables can be inserted: `{filename}`, `{filedir}`, `{filepath}`, "
+          "`{owner}`, `{repo}`, `{version}`; meaning filename, containing "
+          "directory of the file, file path, repo owner, repo name, current "
+          "version; all paths are relative to the work directory")
 
     if no_additional_help:
         prerel_desp = cmd_desp = ""
 
-    parser = argparse.ArgumentParser(description="获取GitHub仓库的Release的工具")
+    parser = argparse.ArgumentParser(
+        description="Script to get latest release from GitHub repositories")
     parser.add_argument("repo", metavar="OWNER/REPO", nargs="?",
-                        help="`所有者/仓库`的形式的仓库名（如果指定此参数，配置文件指定"
-                        "的仓库列表及选项会被覆盖）")
+                        help=_("Repo identifier in format of `owner/repo` "
+                               "(if this option is specified, the repo list in "
+                               "config file will be overridden)"))
     parser.add_argument("-r", "--regex-filter", metavar="REGEX",
-                        help=f"用regex过滤文件名")
+                        help=_("Filter filenames by regex"))
     parser.add_argument("--prerelease", action="store_true",
-                        help=f"下载最新的Prerelease{prerel_desp}")
+                        help=_("Get the latest prerelease") + prerel_desp)
     parser.add_argument("--no-prerelease", action="store_true",
-                        help=f"下载最新的非Prerelease{prerel_desp}")
+                        help=_("Get the latest non-prerelease") + prerel_desp)
     parser.add_argument("--post-download", metavar="COMMAND",
-                        help=f"下载完成后执行的命令{cmd_desp}")
+                        help=_("Command to be executed after each file is "
+                               "downloaded") + cmd_desp)
     parser.add_argument("--post-remove", metavar="COMMAND",
-                        help=f"删除文件后执行的命令{cmd_desp}")
+                        help=_("Command to be executed after each file is "
+                               "removed") + cmd_desp)
     parser.add_argument("-c", "--config", metavar="PATH",
-                        help="配置文件路径")
+                        help=_("Path to the config file"))
     parser.add_argument("-v", "--version-file-dir", metavar="PATH",
-                        help="版本文件存储路径（如果不指定此参数，默认不使用版本文件）")
+                        help=_("Directory to put version files (if not "
+                               "specified, version files will not be used)"))
     parser.add_argument("-d", "--download-dir", metavar="PATH",
-                        help="下载路径（默认：当前工作目录）")
+                        help=_("Directory to put downloaded files (Default is "
+                               "current working directory)"))
     parser.add_argument("--use-subdir", action="store_true",
-                        help=f"使用子目录（用`所有者/仓库`的形式存放文件，默认不使用）")
+                        help=_("Save files to sub-directories like "
+                               "`owner/repo` (no sub-directories by default)"))
     parser.add_argument("-f", "--force", action="store_true",
-                        help=f"忽略当前版本文件，强制执行")
+                        help=_("Ignore current version file(s) and forcibly "
+                               "execute"))
     parser.add_argument("--max-retry", metavar="N", type=int,
-                        help=f"重试次数（默认：{DEFAULT_OPTIONS['max_retry']}）")
+                        help=_("Max retry attemps (default: {})").format(
+                            DEFAULT_OPTIONS['max_retry']))
     parser.add_argument("--verbose", action="store_true",
-                        help=f"显示调试输出")
+                        help=_("Show debug output"))
     return parser
 
 
@@ -312,7 +348,8 @@ def main():
                         parsed_conf[conf_section][key] = \
                             conf.getboolean(conf_section, key)
                 else:
-                    raise Exception(f"未知配置选项：{key}")
+                    logging.error(_("Unknown config option: {}").format(key))
+                    return -1
         options.update(parsed_conf["DEFAULT"])
         del parsed_conf["DEFAULT"]
     del parsed_args["config"]
@@ -323,7 +360,10 @@ def main():
         del parsed_args["prerelease"]
     if parsed_args["no_prerelease"]:
         if prerelease == True:
-            raise Exception(f"不能同时指定--prerelease和--no-prerelease。")
+            logging.error(
+                _("`--prerelease` and `--no-prerelease` cannot be specified at "
+                  "the same time."))
+            return -1
         prerelease = False
     del parsed_args["no_prerelease"]
     del parsed_args["prerelease"]
@@ -349,16 +389,22 @@ def main():
     del options["verbose"]
 
     if not repositories:
-        logging.error("没有指定任何仓库。\n")
+        logging.error(_("No repositories specified.") + "\n")
         parser.print_help()
-        exit(-1)
+        return -1
 
+    ret_code = 0
     for repo_identifier, repo_options in repositories.items():
-        logging.info(f"处理：{repo_identifier}")
+        logging.info(_("Processing: {}".format(repo_identifier)))
         repo_options_merged = options.copy()
         repo_options_merged.update(repo_options)
         try:
-            owner, repo = repo_identifier.split("/")
+            splited_identifier = repo_identifier.split("/")
+            if len(splited_identifier) != 2:
+                raise Exception(
+                    _("Repo identifier must be in format of `repo/owner` "
+                      "(Erroneous input: {})").format(repo_identifier))
+            owner, repo = splited_identifier
             download_repo_release(
                 owner=owner,
                 repo=repo,
@@ -366,11 +412,13 @@ def main():
                 **repo_options_merged
             )
         except Exception as e:
-            logging.error(f"发生了错误：{e}")
+            logging.warning(_("Error occurred: {}").format(e))
             logging.debug(traceback.format_exc())
+            ret_code = -1
 
-    logging.info("完成。")
+    logging.info(_("Finished.") if ret_code == 0 else _("Partially finished."))
+    return ret_code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

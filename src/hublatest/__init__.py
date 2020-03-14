@@ -1,0 +1,1 @@
+from .hublatest import download_repo_release
