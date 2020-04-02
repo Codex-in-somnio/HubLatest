@@ -357,7 +357,6 @@ def main():
     prerelease = None
     if parsed_args["prerelease"]:
         prerelease = True
-        del parsed_args["prerelease"]
     if parsed_args["no_prerelease"]:
         if prerelease == True:
             logging.error(
