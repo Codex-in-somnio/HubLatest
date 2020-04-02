@@ -248,7 +248,7 @@ class DownloadRepoRelease:
                 if i == self.max_retry - 1:
                     self.logger.error(
                         _("Max retry attemps reached. ({} times).").format(
-                            max_retry))
+                            self.max_retry))
                     raise e
 
     def exec_commands(self, cmd_template, file):
