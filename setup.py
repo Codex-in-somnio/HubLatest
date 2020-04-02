@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="HubLatest",
-    version="0.1.1",
+    version="0.1.2",
     author="Codex-in-Somnio",
     author_email="yyy3752@gmail.com",
     description="Script to automatically download latest release from "
