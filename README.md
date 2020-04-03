@@ -108,7 +108,7 @@ prerelease = false
 post_download = unzip {filepath} -d {filedir}/extracted_files
 
 # delete extracted files when old version is removed
-post_delete = rm -r {filedir}/extracted_files
+post_remove = rm -r {filedir}/extracted_files
 ```
 
 Usage:
@@ -247,7 +247,7 @@ prerelease = false
 post_download = unzip {filepath} -d {filedir}/extracted_files
 
 # 在删除旧版本时删除之前解压出来的文件
-post_delete = rm -r {filedir}/extracted_files
+post_remove = rm -r {filedir}/extracted_files
 ```
 
 用法例如：
