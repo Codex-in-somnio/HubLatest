@@ -14,6 +14,7 @@ import gettext
 from subprocess import run, PIPE
 from shlex import quote
 from collections import namedtuple
+from .file_download import file_download
 
 
 translation = gettext.translation(
@@ -79,7 +80,7 @@ class DownloadRepoRelease:
 
         if use_subdir:
             ver_file_name_template = VER_FILE_NAME_TEMPLATE_SUBDIR
-            self.download_dir = os.path.join(download_dir, repo[0], repo[1])
+            self.download_dir = os.path.join(download_dir, owner, repo)
         else:
             ver_file_name_template = VER_FILE_NAME_TEMPLATE_NO_SUBDIR
             self.download_dir = download_dir
@@ -110,6 +111,7 @@ class DownloadRepoRelease:
             logger.info(_("Current local version: {}").format(local_version))
             logger.debug(_("Local assets: {}").format(local_files))
 
+        self.local_version = local_version
         self.files_to_remove = []
         need_update_version_file = False
 
@@ -210,7 +212,7 @@ class DownloadRepoRelease:
         for url, file in self.files_needed.items():
             self.logger.info(_("Downloading: {}").format(url))
             file_path = os.path.join(self.download_dir, file.filename)
-            self.try_function(urllib.request.urlretrieve, [url, file_path])
+            self.try_function(file_download, [url, file_path])
             if self.post_download:
                 self.exec_commands(self.post_download, file)
 
@@ -221,7 +223,7 @@ class DownloadRepoRelease:
             if os.path.isfile(file_pathname):
                 os.remove(file_pathname)
                 if self.post_remove:
-                    self.exec_commands(self.post_remove, file)
+                    self.exec_commands(self.post_remove, file, is_remove=True)
             else:
                 self.logger.warning(
                     _("Old file not found: {}").format(file_pathname))
@@ -251,14 +253,15 @@ class DownloadRepoRelease:
                             self.max_retry))
                     raise e
 
-    def exec_commands(self, cmd_template, file):
+    def exec_commands(self, cmd_template, file, is_remove=False):
         cmd = cmd_template.format(
             filename=quote(file.filename),
             filedir=quote(self.download_dir),
             filepath=quote(os.path.join(self.download_dir, file.filename)),
             owner=quote(self.owner),
             repo=quote(self.repo),
-            version=quote(self.latest_version))
+            version=quote(self.local_version if is_remove else
+                          self.latest_version))
         self.logger.debug(_("Executing command: {}").format(cmd))
         result = run(cmd, shell=True, stdout=PIPE, stderr=PIPE)
         if result.returncode != 0:
